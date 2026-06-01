@@ -15,7 +15,6 @@
         button { background-color: #3498db; color: white; border: none; padding: 12px 25px; font-size: 18px; border-radius: 6px; cursor: pointer; width: 100%; transition: 0.3s; margin-top: 10px; }
         button:hover { background-color: #2980b9; }
         
-        /* 聽寫進行中的大字體專用區塊 */
         #examMode { display: none; background-color: #2c3e50; color: white; padding: 40px 20px; border-radius: 12px; margin-top: 20px; }
         #status { font-size: 32px; font-weight: bold; color: #f1c40f; min-height: 45px; margin-bottom: 15px; }
         #countdown { font-size: 22px; color: #ecf0f1; font-weight: bold; min-height: 30px; margin-bottom: 25px; }
@@ -46,7 +45,7 @@
         <div class="form-group">
             <label for="rate">3. 朗讀速度（語速）：</label>
             <select id="rate">
-                <option value="0.5">非常慢 (0.5)</option>
+                <option value="0.6">非常慢 (0.6)</option>
                 <option value="0.7" selected>稍微慢 (0.7) - 推薦小一</option>
                 <option value="1.0">正常速度 (1.0)</option>
             </select>
@@ -58,6 +57,14 @@
                 <option value="1">念 1 次</option>
                 <option value="2" selected>念 2 次（中間停頓 2 秒）</option>
                 <option value="3">念 3 次</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="orderMode">5. 聽寫朗讀順序：</label>
+            <select id="orderMode">
+                <option value="normal" selected>依序朗讀（從第一題照順序往下唸）</option>
+                <option value="random">隨機排序（打亂順序，每次考試都不同）</option>
             </select>
         </div>
 
@@ -80,14 +87,9 @@
     let isPlaying = false; 
     const synth = window.speechSynthesis;
 
-    // 防止螢幕變暗
     async function requestWakeLock() {
         if ('navigator' in window && 'wakeLock' in navigator) {
-            try {
-                wakeLock = await navigator.wakeLock.request('screen');
-            } catch (err) {
-                console.log("環境不支援螢幕鎖定。");
-            }
+            try { wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
         }
     }
 
@@ -95,6 +97,23 @@
         if (wakeLock !== null) {
             try { wakeLock.release(); } catch (err) {}
             wakeLock = null;
+        }
+    }
+
+    function setBestVoice(utterance) {
+        if (!synth) return;
+        const voices = synth.getVoices();
+        const targetVoice = voices.find(v => v.lang === 'zh-TW' || v.lang === 'zh-tw') || 
+                            voices.find(v => v.lang.includes('zh'));
+        if (targetVoice) { utterance.voice = targetVoice; }
+        utterance.lang = 'zh-TW';
+    }
+
+    // 新增：洗牌演算法（將陣列隨機打亂）
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]]; // 交換位置
         }
     }
 
@@ -111,11 +130,18 @@
             synth.speak(u);
         }
 
+        // 解析出原始的詞語清單
         wordList = text.split('\n').map(w => w.trim()).filter(w => w.length > 0);
+        
+        // 判斷使用者是否開啟「隨機排序」
+        const orderMode = document.getElementById('orderMode').value;
+        if (orderMode === 'random') {
+            shuffleArray(wordList); // 執行洗牌
+        }
+
         currentIndex = 0;
         isPlaying = true; 
         
-        // 【防偷看切換】隱藏設定區，顯示考試深色大字體畫面
         document.getElementById('setupArea').style.display = 'none';
         document.getElementById('examMode').style.display = 'block';
         document.getElementById('countdown').innerText = '';
@@ -157,7 +183,7 @@
         }
 
         const utterance = new SpeechSynthesisUtterance(word);
-        utterance.lang = 'zh-TW';
+        setBestVoice(utterance); 
         utterance.rate = rate;
 
         utterance.onend = () => {
@@ -218,7 +244,7 @@
 
     function speakNotification(text, callback) {
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'zh-TW';
+        setBestVoice(utterance); 
         utterance.rate = 0.8;
         if (callback) {
             utterance.onend = () => { callback(); };
@@ -232,7 +258,6 @@
         document.getElementById('countdown').innerText = '正在統計成果...';
         
         speakNotification("聽寫測驗結束，小朋友辛苦了！", () => {
-            // 結束語講完後，才恢復原本的輸入畫面
             resetToSetup();
         });
 
@@ -246,14 +271,11 @@
         isPlaying = false; 
         clearTimeout(timer);
         clearInterval(countdownTimer);
-        if (synth) {
-            synth.cancel(); 
-        }
+        if (synth) { synth.cancel(); }
         releaseWakeLock(); 
         resetToSetup();
     }
 
-    // 恢復成設定與輸入畫面
     function resetToSetup() {
         document.getElementById('examMode').style.display = 'none';
         document.getElementById('setupArea').style.display = 'block';
