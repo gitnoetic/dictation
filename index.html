@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>自動聽寫測驗</title>
+    <title>台灣小學生聽寫測驗站</title>
     <style>
         body { font-family: "Microsoft JhengHei", Arial, sans-serif; background-color: #f4f7f6; color: #333; text-align: center; padding: 20px; margin: 0; }
         .container { max-width: 600px; margin: 20px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
@@ -19,13 +19,14 @@
         #status { font-size: 32px; font-weight: bold; color: #f1c40f; min-height: 45px; margin-bottom: 15px; }
         #countdown { font-size: 22px; color: #ecf0f1; font-weight: bold; min-height: 30px; margin-bottom: 25px; }
         
+        .exam-btn { width: 48%; display: inline-block; margin: 5px 1%; }
         .hint { font-size: 13px; color: #7f8c8d; margin-top: 4px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>📝 聽寫小幫手</h1>
+    <h1>📝 台灣小學生聽寫測驗站</h1>
     
     <div id="setupArea">
         <div class="form-group">
@@ -74,7 +75,10 @@
     <div id="examMode">
         <div id="status">準備就緒</div>
         <div id="countdown"></div>
-        <button id="stopBtn" onclick="stopDictation()" style="background-color: #e74c3c;">⏹️ 停止測驗</button>
+        <div>
+            <button id="nextBtn" class="exam-btn" onclick="skipToNext()" style="background-color: #2ecc71;">⏭️ 手動下一題</button>
+            <button id="stopBtn" class="exam-btn" onclick="stopDictation()" style="background-color: #e74c3c;">⏹️ 停止測驗</button>
+        </div>
     </div>
 </div>
 
@@ -85,6 +89,7 @@
     let wordList = [];
     let currentIndex = 0;
     let isPlaying = false; 
+    let flowToken = 0; 
     const synth = window.speechSynthesis;
 
     async function requestWakeLock() {
@@ -109,11 +114,10 @@
         utterance.lang = 'zh-TW';
     }
 
-    // 新增：洗牌演算法（將陣列隨機打亂）
     function shuffleArray(array) {
         for (let i = array.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]]; // 交換位置
+            [array[i], array[j]] = [array[j], array[i]];
         }
     }
 
@@ -124,19 +128,20 @@
             return;
         }
 
+        flowToken++; 
+        const currentToken = flowToken;
+
         if (synth) {
             synth.cancel();
-            const u = new SpeechSynthesisUtterance('');
-            synth.speak(u);
         }
+        clearTimeout(timer);
+        clearInterval(countdownTimer);
 
-        // 解析出原始的詞語清單
         wordList = text.split('\n').map(w => w.trim()).filter(w => w.length > 0);
         
-        // 判斷使用者是否開啟「隨機排序」
         const orderMode = document.getElementById('orderMode').value;
         if (orderMode === 'random') {
-            shuffleArray(wordList); // 執行洗牌
+            shuffleArray(wordList);
         }
 
         currentIndex = 0;
@@ -144,22 +149,29 @@
         
         document.getElementById('setupArea').style.display = 'none';
         document.getElementById('examMode').style.display = 'block';
+        document.getElementById('nextBtn').style.display = 'inline-block'; 
         document.getElementById('countdown').innerText = '';
         
         requestWakeLock();
 
         speakNotification("聽寫測驗即將開始，請準備。第一題：", () => {
-            if (!isPlaying) return;
-            playNext();
+            if (currentToken !== flowToken || !isPlaying) return;
+            playNext(currentToken);
         });
     }
 
-    function playNext() {
-        if (!isPlaying) return;
+    function playNext(currentToken) {
+        if (currentToken !== flowToken || !isPlaying) return;
 
         if (currentIndex >= wordList.length) {
             finishDictation();
             return;
+        }
+
+        if (currentIndex === wordList.length - 1) {
+            document.getElementById('nextBtn').style.display = 'none';
+        } else {
+            document.getElementById('nextBtn').style.display = 'inline-block';
         }
 
         const currentWord = wordList[currentIndex];
@@ -170,13 +182,13 @@
         document.getElementById('countdown').innerText = "👂 專心聽老師唸喔...";
 
         speakWordRepeatedly(currentWord, rate, repeatCount, () => {
-            if (!isPlaying) return;
-            startIntervalCountdown();
-        });
+            if (currentToken !== flowToken || !isPlaying) return;
+            startIntervalCountdown(currentToken);
+        }, currentToken);
     }
 
-    function speakWordRepeatedly(word, rate, remainingTimes, callback) {
-        if (!isPlaying) return;
+    function speakWordRepeatedly(word, rate, remainingTimes, callback, currentToken) {
+        if (currentToken !== flowToken || !isPlaying) return;
         if (remainingTimes <= 0) {
             callback();
             return;
@@ -187,23 +199,28 @@
         utterance.rate = rate;
 
         utterance.onend = () => {
-            if (!isPlaying) return;
+            if (currentToken !== flowToken || !isPlaying) return;
             if (remainingTimes > 1) {
                 timer = setTimeout(() => {
-                    if (!isPlaying) return;
-                    speakWordRepeatedly(word, rate, remainingTimes - 1, callback);
+                    if (currentToken !== flowToken || !isPlaying) return;
+                    speakWordRepeatedly(word, rate, remainingTimes - 1, callback, currentToken);
                 }, 2000);
             } else {
                 callback();
             }
         };
 
-        utterance.onerror = () => { callback(); };
+        utterance.onerror = () => { 
+            if (currentToken !== flowToken || !isPlaying) return;
+            callback(); 
+        };
         synth.speak(utterance);
     }
 
-    function startIntervalCountdown() {
-        if (!isPlaying) return;
+    function startIntervalCountdown(currentToken) {
+        if (currentToken !== flowToken || !isPlaying) return;
+        
+        clearInterval(countdownTimer); 
         let secondsLeft = parseInt(document.getElementById('interval').value);
         const isLastWord = (currentIndex === wordList.length - 1);
         
@@ -214,7 +231,7 @@
         }
 
         countdownTimer = setInterval(() => {
-            if (!isPlaying) {
+            if (currentToken !== flowToken || !isPlaying) {
                 clearInterval(countdownTimer);
                 return;
             }
@@ -222,16 +239,7 @@
             
             if (secondsLeft <= 0) {
                 clearInterval(countdownTimer);
-                currentIndex++; 
-                
-                if (currentIndex < wordList.length) {
-                    speakNotification(`下一題：`, () => {
-                        if (!isPlaying) return;
-                        playNext();
-                    });
-                } else {
-                    playNext(); 
-                }
+                goToNextQuestion(); 
             } else {
                 if (isLastWord) {
                     document.getElementById('countdown').innerText = `最後一題作答剩餘 ${secondsLeft} 秒`;
@@ -240,6 +248,34 @@
                 }
             }
         }, 1000);
+    }
+
+    function goToNextQuestion() {
+        flowToken++; 
+        const currentToken = flowToken;
+
+        currentIndex++; 
+        if (currentIndex < wordList.length) {
+            speakNotification("下一題：", () => {
+                if (currentToken !== flowToken || !isPlaying) return;
+                playNext(currentToken);
+            });
+        } else {
+            playNext(currentToken); 
+        }
+    }
+
+    function skipToNext() {
+        if (!isPlaying) return;
+        
+        clearTimeout(timer);
+        clearInterval(countdownTimer);
+        
+        if (synth) {
+            synth.cancel(); 
+        }
+        
+        goToNextQuestion(); 
     }
 
     function speakNotification(text, callback) {
@@ -254,20 +290,25 @@
     }
 
     function finishDictation() {
+        flowToken++; 
+        const currentToken = flowToken;
+
         document.getElementById('status').innerText = '🎉 測驗結束！好棒！';
         document.getElementById('countdown').innerText = '正在統計成果...';
         
-        speakNotification("聽寫測驗結束，小朋友辛苦了！", () => {
-            resetToSetup();
-        });
-
         isPlaying = false; 
         clearTimeout(timer);
         clearInterval(countdownTimer);
         releaseWakeLock(); 
+        
+        speakNotification("聽寫測驗結束，小朋友辛苦了！", () => {
+            if (currentToken !== flowToken) return;
+            resetToSetup();
+        });
     }
 
     function stopDictation() {
+        flowToken++; 
         isPlaying = false; 
         clearTimeout(timer);
         clearInterval(countdownTimer);
