@@ -19,7 +19,9 @@
         #status { font-size: 32px; font-weight: bold; color: #f1c40f; min-height: 45px; margin-bottom: 15px; }
         #countdown { font-size: 22px; color: #ecf0f1; font-weight: bold; min-height: 30px; margin-bottom: 25px; }
         
-        .exam-btn { width: 48%; display: inline-block; margin: 5px 1%; }
+        /* 調整控制按鈕區排版 */
+        .exam-btn-group { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; }
+        .exam-btn { flex: 1; padding: 12px 5px; font-size: 15px; border-radius: 6px; border: none; color: white; cursor: pointer; transition: 0.3s; white-space: nowrap; }
         .hint { font-size: 13px; color: #7f8c8d; margin-top: 4px; }
     </style>
 </head>
@@ -75,8 +77,9 @@
     <div id="examMode">
         <div id="status">準備就緒</div>
         <div id="countdown"></div>
-        <div>
-            <button id="nextBtn" class="exam-btn" onclick="skipToNext()" style="background-color: #2ecc71;">⏭️ 手動下一題</button>
+        <div class="exam-btn-group">
+            <button id="nextBtn" class="exam-btn" onclick="skipToNext()" style="background-color: #2ecc71;">⏭️ 下一題</button>
+            <button id="pauseBtn" class="exam-btn" onclick="togglePause()" style="background-color: #f39c12;">⏸️ 暫停測驗</button>
             <button id="stopBtn" class="exam-btn" onclick="stopDictation()" style="background-color: #e74c3c;">⏹️ 停止測驗</button>
         </div>
     </div>
@@ -89,6 +92,7 @@
     let wordList = [];
     let currentIndex = 0;
     let isPlaying = false; 
+    let isPaused = false; // 新增暫停狀態旗標
     let flowToken = 0; 
     const synth = window.speechSynthesis;
 
@@ -146,7 +150,10 @@
 
         currentIndex = 0;
         isPlaying = true; 
+        isPaused = false;
         
+        document.getElementById('pauseBtn').innerText = '⏸️ 暫停測驗';
+        document.getElementById('pauseBtn').style.backgroundColor = '#f39c12';
         document.getElementById('setupArea').style.display = 'none';
         document.getElementById('examMode').style.display = 'block';
         document.getElementById('nextBtn').style.display = 'inline-block'; 
@@ -155,13 +162,13 @@
         requestWakeLock();
 
         speakNotification("聽寫測驗即將開始，請準備。第一題：", () => {
-            if (currentToken !== flowToken || !isPlaying) return;
+            if (currentToken !== flowToken || !isPlaying || isPaused) return;
             playNext(currentToken);
         });
     }
 
     function playNext(currentToken) {
-        if (currentToken !== flowToken || !isPlaying) return;
+        if (currentToken !== flowToken || !isPlaying || isPaused) return;
 
         if (currentIndex >= wordList.length) {
             finishDictation();
@@ -182,13 +189,13 @@
         document.getElementById('countdown').innerText = "👂 專心聽老師唸喔...";
 
         speakWordRepeatedly(currentWord, rate, repeatCount, () => {
-            if (currentToken !== flowToken || !isPlaying) return;
+            if (currentToken !== flowToken || !isPlaying || isPaused) return;
             startIntervalCountdown(currentToken);
         }, currentToken);
     }
 
     function speakWordRepeatedly(word, rate, remainingTimes, callback, currentToken) {
-        if (currentToken !== flowToken || !isPlaying) return;
+        if (currentToken !== flowToken || !isPlaying || isPaused) return;
         if (remainingTimes <= 0) {
             callback();
             return;
@@ -199,10 +206,10 @@
         utterance.rate = rate;
 
         utterance.onend = () => {
-            if (currentToken !== flowToken || !isPlaying) return;
+            if (currentToken !== flowToken || !isPlaying || isPaused) return;
             if (remainingTimes > 1) {
                 timer = setTimeout(() => {
-                    if (currentToken !== flowToken || !isPlaying) return;
+                    if (currentToken !== flowToken || !isPlaying || isPaused) return;
                     speakWordRepeatedly(word, rate, remainingTimes - 1, callback, currentToken);
                 }, 2000);
             } else {
@@ -211,14 +218,14 @@
         };
 
         utterance.onerror = () => { 
-            if (currentToken !== flowToken || !isPlaying) return;
+            if (currentToken !== flowToken || !isPlaying || isPaused) return;
             callback(); 
         };
         synth.speak(utterance);
     }
 
     function startIntervalCountdown(currentToken) {
-        if (currentToken !== flowToken || !isPlaying) return;
+        if (currentToken !== flowToken || !isPlaying || isPaused) return;
         
         clearInterval(countdownTimer); 
         let secondsLeft = parseInt(document.getElementById('interval').value);
@@ -231,7 +238,7 @@
         }
 
         countdownTimer = setInterval(() => {
-            if (currentToken !== flowToken || !isPlaying) {
+            if (currentToken !== flowToken || !isPlaying || isPaused) {
                 clearInterval(countdownTimer);
                 return;
             }
@@ -250,6 +257,36 @@
         }, 1000);
     }
 
+    function togglePause() {
+        if (!isPlaying) return;
+
+        if (!isPaused) {
+            // 切換為暫停狀態
+            isPaused = true;
+            clearTimeout(timer);
+            clearInterval(countdownTimer);
+            if (synth) synth.cancel();
+
+            document.getElementById('pauseBtn').innerText = '▶️ 繼續測驗';
+            document.getElementById('pauseBtn').style.backgroundColor = '#27ae60';
+            document.getElementById('status').innerText = `⏸️ 測驗暫停中（第 ${currentIndex + 1} / ${wordList.length} 題）`;
+            document.getElementById('countdown').innerText = '按「繼續測驗」將重新朗讀本題';
+        } else {
+            // 解除暫停，繼續測驗
+            isPaused = false;
+            document.getElementById('pauseBtn').innerText = '⏸️ 暫停測驗';
+            document.getElementById('pauseBtn').style.backgroundColor = '#f39c12';
+
+            flowToken++;
+            const currentToken = flowToken;
+
+            speakNotification("繼續測驗：", () => {
+                if (currentToken !== flowToken || !isPlaying || isPaused) return;
+                playNext(currentToken);
+            });
+        }
+    }
+
     function goToNextQuestion() {
         flowToken++; 
         const currentToken = flowToken;
@@ -257,7 +294,7 @@
         currentIndex++; 
         if (currentIndex < wordList.length) {
             speakNotification("下一題：", () => {
-                if (currentToken !== flowToken || !isPlaying) return;
+                if (currentToken !== flowToken || !isPlaying || isPaused) return;
                 playNext(currentToken);
             });
         } else {
@@ -268,6 +305,12 @@
     function skipToNext() {
         if (!isPlaying) return;
         
+        if (isPaused) {
+            isPaused = false;
+            document.getElementById('pauseBtn').innerText = '⏸️ 暫停測驗';
+            document.getElementById('pauseBtn').style.backgroundColor = '#f39c12';
+        }
+
         clearTimeout(timer);
         clearInterval(countdownTimer);
         
@@ -297,6 +340,7 @@
         document.getElementById('countdown').innerText = '正在統計成果...';
         
         isPlaying = false; 
+        isPaused = false;
         clearTimeout(timer);
         clearInterval(countdownTimer);
         releaseWakeLock(); 
@@ -310,6 +354,7 @@
     function stopDictation() {
         flowToken++; 
         isPlaying = false; 
+        isPaused = false;
         clearTimeout(timer);
         clearInterval(countdownTimer);
         if (synth) { synth.cancel(); }
@@ -318,6 +363,9 @@
     }
 
     function resetToSetup() {
+        isPaused = false;
+        document.getElementById('pauseBtn').innerText = '⏸️ 暫停測驗';
+        document.getElementById('pauseBtn').style.backgroundColor = '#f39c12';
         document.getElementById('examMode').style.display = 'none';
         document.getElementById('setupArea').style.display = 'block';
         document.getElementById('status').innerText = '準備就緒';
